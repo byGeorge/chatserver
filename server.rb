@@ -17,22 +17,28 @@ class ChatServer
 		#the server should close the thread if it's not
 		request = @client.gets
 		get_user_name(request)
-		loop do
-			#will read a line from the client request
-			request = @client.gets.split(' ')
-			#process the request
-			process(request)
-	    	#persistent connection will stay open until told to close
-	    	break if request[0].eql?("7")
-	    end
+		if @client.closed?
+			p "username request denied!"
+		else
+			loop do
+				#will read a line from the client request
+				request = @client.gets.split(' ')
+				#process the request
+				process(request)
+			    #persistent connection will stay open until told to close
+			    break if request[0].eql?("7")
+			end
+		end
 	end
 
 	def get_user_name(request)
 		req = request.split(' ')
 		# check for properly phrased request
 		if req[0] == "0"
-			# check if user name exists
-			if $users.keys.include?(req[1])
+			exists = 0
+			# check if user name exists, regardless of capitalization
+			$users.each_key { | key | exists = 1 if key.downcase == req[1].downcase }
+			if exists == 1
 				#this username has a space, so will only happen if there's a login failure
 				@user = "login failure"
 				@client.puts("2")
@@ -74,24 +80,29 @@ class ChatServer
 			request.delete_at(0)
 			# save the user names and deletes them from the array
 			msg_from = request.delete_at(0)
-			msg_to = request.delete_at(0)
-			# put the message back together
-			msg = request.join(' ')
-			# does the user exists ? if yes, send the message : if not, don't do anything
-			$users.key?(msg_to) ? $users.fetch(msg_to).puts("6 #{msg_from} #{msg_to} #{Time.now.gmtime.strftime("%Y:%m:%d:%H:%M:%S")} #{msg}") : ""
+			if msg_from == @user
+				msg_to = request.delete_at(0)
+				# put the message back together
+				msg = request.join(' ')
+				# does the user exists ? if yes, send the message : if not, don't do anything
+				$users.key?(msg_to) ? $users.fetch(msg_to).puts("6 #{msg_from} #{msg_to} #{Time.now.gmtime.strftime("%Y:%m:%d:%H:%M:%S")} #{msg}") : ""
+			else
+				# if the sender is trying to pretend to be someone else
+				@client.puts("6 server #{@user} You're not #{msg_from}! LIAR LIAR PANTS ON FIRE!")
+			end
 		elsif request[0] == "7"
 			@client.puts("8")
 			# remove the client from the list
 	    	$users.delete(@user)
 			# send a message to everyone else
 			$users.values.each do |user| 
-				user.puts("9 #{@user}")  
-	    		#close the client. That's important.
-	    		@client.close 
+				user.puts("9 #{@user}")
 	    	end
+	    	#close the client. That's important.
+	    	@client.close 
 		end
 		#process(request) won't do anything if any other number has been entered
-	end
+	end # end process
 end # end class chatserver
 
 #start up a server
@@ -106,7 +117,23 @@ loop do
  	Thread.start(server.accept) do |client|
  		begin 
     		ChatServer.new(client).serve()
-    	#this is here for error checking, please pay it no mind
+    	#unexpected closure will start the rescue block
+    	rescue
+    		#closes the socket
+    		client.close
+    		dud = "unknown"
+    		#checks each pair for the closed socket
+    		$users.each_pair do |key, value| 
+    			dud = key if value.closed? 
+    		end
+    		if dud != "unknown"
+	    		# remove the client from the list
+		    	$users.delete(dud)
+				# send a message to everyone else
+				$users.values.each do |user| 
+					user.puts("9 #{dud}")  
+				end
+	    	end
     	end
     end
 end
