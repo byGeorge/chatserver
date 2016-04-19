@@ -20,32 +20,11 @@ class ChatServer
 		loop do
 			#will read a line from the client request
 			request = @client.gets.split(' ')
-
+			#process the request
+			process(request)
 	    	#persistent connection will stay open until told to close
 	    	break if request[0].eql?("7")
-
-	    	process(request)
 	    end
-	    # send a disconnect message
-	    @client.puts("8")
-	    # send a message to everyone
-		$users.values.each do |user|
-			user.puts("9 #{@user} #{msg}")
-		end
-	    # remove the client from the list
-	    $users.delete(@user)
-	    #close the client. That's important.
-	    @client.close 
-	#rescue is one of the ways that Ruby handles exceptions
-	rescue => e
-		# in this case the client probably closed the chat unexpectedly
-		$users.values.each do |user|
-			user.puts("9 #{@user}")
-		end
-	    # remove the client from the list
-	    $users.delete(@user)
-	    #close the client. That's important.
-	    @client.close 
 	end
 
 	def get_user_name(request)
@@ -54,7 +33,9 @@ class ChatServer
 		if req[0] == "0"
 			# check if user name exists
 			if $users.keys.include?(req[1])
-				@client.puts("2 /r/n")
+				#this username has a space, so will only happen if there's a login failure
+				@user = "login failure"
+				@client.puts("2")
 				@client.close
 			else
 				# add client to list 
@@ -71,7 +52,7 @@ class ChatServer
 				@client.puts(msg)
 			end
 		else
-			@client.puts("2 /r/n")
+			@client.puts("2")
 			@client.close
 		end
 	end #end get_user_name
@@ -98,6 +79,16 @@ class ChatServer
 			msg = request.join(' ')
 			# does the user exists ? if yes, send the message : if not, don't do anything
 			$users.key?(msg_to) ? $users.fetch(msg_to).puts("6 #{msg_from} #{msg_to} #{Time.now.gmtime.strftime("%Y:%m:%d:%H:%M:%S")} #{msg}") : ""
+		elsif request[0] == "7"
+			@client.puts("8")
+			# remove the client from the list
+	    	$users.delete(@user)
+			# send a message to everyone else
+			$users.values.each do |user| 
+				user.puts("9 #{@user}")  
+	    		#close the client. That's important.
+	    		@client.close 
+	    	end
 		end
 		#process(request) won't do anything if any other number has been entered
 	end
@@ -116,10 +107,6 @@ loop do
  		begin 
     		ChatServer.new(client).serve()
     	#this is here for error checking, please pay it no mind
-   		rescue => e
-   			#no really... p e sucks
-    		p e
-    		puts e.backtrace
     	end
     end
 end
